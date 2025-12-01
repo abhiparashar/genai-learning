@@ -76,16 +76,21 @@ def text_to_sql(question, context=""):
     """Convert natural language question to SQL query using Gemini"""
     try:
         model = genai.GenerativeModel(
-            "gemini-1.5-flash",
+            "gemini-2.5-flash",
             system_instruction=SYSTEM_PROMPT
         )
         
-        # Add context if available
-        prompt = question
+        # Make the prompt very explicit
         if context:
-            prompt = f"Previous context:\n{context}\n\nNew question: {question}"
+            full_prompt = f"""{context}
+
+User's new question: {question}
+
+IMPORTANT: If the question uses words like "they", "them", "those", "it", "how many", you MUST apply the same WHERE conditions from the previous SQL query."""
+        else:
+            full_prompt = question
         
-        response = model.generate_content(prompt)
+        response = model.generate_content(full_prompt)
         sql = response.text.strip()
         sql = sql.replace('```sql', '').replace('```', '').strip()
         
@@ -93,7 +98,7 @@ def text_to_sql(question, context=""):
     except Exception as e:
         print(f"❌ Error generating SQL: {e}")
         return None
-
+    
     
 def execute_query(sql):
     """Execute SQL query and return results"""
@@ -222,6 +227,74 @@ def main():
     
     while True:
         # Get user question
+        question = input("You: ").strip()
+        
+        # Exit command
+        if question.lower() == 'exit':
+            print("👋 Goodbye!")
+            break
+        
+        # Clear history command
+        if question.lower() == 'clear':
+            conversation_history.clear()
+            last_query_result = None
+            print("🗑️ History cleared!\n")
+            continue
+        
+        if not question:
+            continue
+        
+        print("\n🔄 Converting to SQL...")
+        
+       # Build context from history
+        context = ""
+        if conversation_history:
+            last_item = conversation_history[-1]
+            context = f"""The user just asked: "{last_item['question']}"
+Which generated this SQL: {last_item['sql']}
+This returned {last_item['result_count']} results.
+
+If the new question refers to "they", "them", "those", "it", use the WHERE clause from the previous SQL."""
+        
+        # Step 1: Convert question to SQL with context
+        sql = text_to_sql(question, context)
+        if not sql:
+            print("❌ Could not generate SQL\n")
+            continue
+        
+        print(f"📝 Generated SQL: {sql}\n")
+        
+        # Step 2: Execute SQL
+        print("⚡ Executing query...")
+        result = execute_query(sql)
+        
+        # Save to history
+        conversation_history.append({
+            'question': question,
+            'sql': sql,
+            'result_count': result.get('count', 0)
+        })
+        last_query_result = result
+        
+        # Step 3: Display results
+        if "error" in result:
+            print(f"❌ {result['error']}\n")
+        else:
+            print(f"✅ Found {result['count']} results:")
+            for i, row in enumerate(result['data'], 1):
+                print(f"{i}. {row}")
+            
+            # Ask if user wants to export
+            if result['count'] > 0:
+                export = input("\n💾 Export results? (csv/json/excel/no): ").strip().lower()
+                if export in ['csv', 'json', 'excel']:
+                    export_results(result['data'], format=export)
+                
+                # Ask if user wants to visualize
+                chart = input("📊 Create chart? (bar/line/pie/no): ").strip().lower()
+                if chart in ['bar', 'line', 'pie']:
+                    generate_chart(result['data'], chart_type=chart)
+            print()        # Get user question
         question = input("You: ").strip()
         
         # Exit command
