@@ -126,6 +126,39 @@ def execute_query(sql):
         conn.close()
         return {"error": f"Query execution failed: {e}"}
     
+def export_results(data, format='csv', filename='results'):
+    """Export query results to file"""
+    import pandas as pd
+    from datetime import datetime
+    
+    if not data:
+        print("❌ No data to export")
+        return
+    
+    # Create DataFrame
+    df = pd.DataFrame(data)
+    
+    # Add timestamp to filename
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    try:
+        if format == 'csv':
+            file = f"{filename}_{timestamp}.csv"
+            df.to_csv(file, index=False)
+        elif format == 'json':
+            file = f"{filename}_{timestamp}.json"
+            df.to_json(file, orient='records', indent=2)
+        elif format == 'excel':
+            file = f"{filename}_{timestamp}.xlsx"
+            df.to_excel(file, index=False)
+        
+        print(f"✅ Exported to: {file}")
+    except Exception as e:
+        print(f"❌ Export failed: {e}")
+
+
+
+    
 def main():
     """Main function - interactive Text-to-SQL agent"""
     print("=" * 50)
@@ -160,14 +193,21 @@ def main():
         print("⚡ Executing query...")
         result = execute_query(sql)
         
-        # Step 3: Display results
+      # Step 3: Display results
         if "error" in result:
             print(f"❌ {result['error']}\n")
         else:
             print(f"✅ Found {result['count']} results:")
             for i, row in enumerate(result['data'], 1):
                 print(f"{i}. {row}")
+            
+            # Ask if user wants to export
+            if result['count'] > 0:
+                export = input("\n💾 Export results? (csv/json/excel/no): ").strip().lower()
+                if export in ['csv', 'json', 'excel']:
+                    export_results(result['data'], format=export)
             print()
+
 
 # Run the agent
 if __name__ == "__main__":
