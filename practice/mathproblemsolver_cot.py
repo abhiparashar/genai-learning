@@ -19,7 +19,7 @@ class MathProblemSolver:
         return text.strip().split('\n')[-1]    
 
     def solve_without_cot(self, problem):
-       prompt = f"Solve: {problem}\n\nAnswer:"
+       prompt = f"{problem}\n\nGive only the final answer, no explanation or steps:"
        response = self.model.generate_content(prompt)
        return {
            'response':response.text,
