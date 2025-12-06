@@ -65,7 +65,6 @@ def main():
         print("WITH CoT:")
         print(cot['response'])
         print(f"Answer: {cot['answer']}")
-        print("-" * 80)
 
 if __name__ == "__main__":
     main()

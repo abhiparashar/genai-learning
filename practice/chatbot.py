@@ -7,7 +7,6 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel("gemini-2.5-flash")
 chat = model.start_chat(history=[])
 
-print("=== Simple Chatbot (type 'quit' to exit) ===\n")
 while True:
     user_input = input("You: ")
 

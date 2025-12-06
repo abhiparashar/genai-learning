@@ -42,13 +42,10 @@ Output (JSON format only, no explanation):
     # Generate response
     response = model.generate_content(prompt)
     try:
-        # Parse JSON response
         result = json.loads(response.text.strip())
         return result       
     except json.JSONDecodeError:
-        # If response isn't valid JSON, try to extract it
         text = response.text.strip()
-        # Remove markdown code blocks if present
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
         elif "```":
@@ -63,7 +60,6 @@ Output (JSON format only, no explanation):
 
 
 def main():
-     # Test cases
     test_emails = [
         "CRITICAL: Our payment gateway is failing. Customers cannot complete purchases. This is costing us thousands of dollars per hour. Need immediate fix!",
         "Hi team, I'm from Acme Corp. We have 500 employees and are looking for an enterprise solution. Could we schedule a call to discuss pricing and features?",

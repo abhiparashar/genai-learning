@@ -24,7 +24,6 @@ Exaplanation:
 def format_output(code, explanation):
     print(f"\nCode:\n{code}\n")
     print(f"Explanation:\n{explanation}\n")
-    print("-" * 80)
    
 
 def main():

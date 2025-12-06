@@ -35,7 +35,6 @@ Think step by step:
 6. Extract 2-3 key points mentioned
 """
     response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(temperature=0,top_p=0.90, top_k=40))
-    # Parse JSON from response
     try:
         text = response.text.strip()
         if text.startswith("```"):
@@ -51,11 +50,8 @@ Think step by step:
         return None
     
 def main():
-    print("=" * 60)
     print("SENTIMENT ANALYZER")
-    print("=" * 60)
     print()
-     # Test cases
     test_reviews = [
         "This product is absolutely amazing! Best purchase I've ever made. The quality is outstanding and shipping was super fast. Highly recommend!",
         

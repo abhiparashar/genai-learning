@@ -3,7 +3,7 @@ import os
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-# System prompt (sets behavior)
+# sets behavior
 system_prompt = """
 You are a helpful Java programming assistant.
 - Answer only Java-related questions

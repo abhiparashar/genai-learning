@@ -1,12 +1,10 @@
 import google.generativeai as genai
 import os
 
-# Configure
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel("gemini-2.5-flash")
 
 # ZERO-SHOT (no examples)
-print("=== ZERO-SHOT ===")
 prompt_zero = """
 Classify the urgency: HIGH, MEDIUM, or LOW
 Customer message: "The dashboard is a bit slow sometimes"
@@ -16,7 +14,7 @@ response = model.generate_content(prompt_zero)
 print(response.text)
 print()
 
-print("=== FEW-SHOT ===")
+print("FEW-SHOT")
 prompt_few = """
 Classify the urgency: HIGH, MEDIUM, or LOW
 

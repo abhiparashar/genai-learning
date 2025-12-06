@@ -24,9 +24,7 @@ Return ONLY the JSON, no other text.
 
 response = model.generate_content(prompt, generation_config=genai.types.GenerationConfig(temperature=0))
 
-# Parse JSON
 try:
-    # Remove markdown code blocks if present
     text = response.text.strip()
     if text.startswith("```"):
         text = text.split("```")[1]

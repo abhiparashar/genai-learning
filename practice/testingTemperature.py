@@ -1,11 +1,9 @@
 import google.generativeai as genai
 import os
 
-# Configure
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel("gemini-2.5-flash")
 
-# Test different temperatures
 prompt = "Write a creative tagline for a coffee shop"
 
 print("=== Temperature = 0 (Deterministic) ===")
