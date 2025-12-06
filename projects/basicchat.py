@@ -2,10 +2,10 @@ import google.generativeai as genai
 import os
 
 def setup_gemini():
-    # api_key = os.getenv("API_KEY")
-    # if not api_key:
-    #     raise ValueError("API_KEY is not set")
-    genai.configure(api_key="AIzaSyAfLy8-gaPe8VhcDIFw71CX1miZLmXudzg")  
+    api_key = os.getenv("API_KEY")
+    if not api_key:
+        raise ValueError("API_KEY is not set")
+    genai.configure(api_key="api_key")  
 
 def create_chat_session(system_prompt):
     model = genai.GenerativeModel(model_name="gemini-2.5-flash",system_instruction=system_prompt)
