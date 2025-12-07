@@ -1,3 +1,9 @@
+import langchain
+if not hasattr(langchain, "verbose"):
+    langchain.verbose = False
+    langchain.debug = False
+    langchain.llm_cache = False
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.tools import tool
 from dotenv import load_dotenv
@@ -72,11 +78,8 @@ def execute_sql(sql: str) -> str:
     except Exception as e:
         return f"SQL Error: {str(e)}"
 
-# Bind tools
 llm_with_tools = llm.bind_tools([get_schema, execute_sql])
 
-# Agent loop
-# Global conversation history (simulating memory)
 conversation_history = []
 
 def run_agent(question):

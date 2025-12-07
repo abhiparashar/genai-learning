@@ -1,279 +1,246 @@
+# Ensure langchain global attributes exist BEFORE importing any langchain-related packages
+import langchain
+if not hasattr(langchain, "verbose"):
+    langchain.verbose = False
+    langchain.debug = False
+    langchain.llm_cache = False
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.tools import tool
 from dotenv import load_dotenv
 import psycopg2
 import os
 import pandas as pd
-import json
 from datetime import datetime
 
-# Load env
 load_dotenv()
 
-# Initialize LLM
+# LLM
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
-    google_api_key=os.getenv('GEMINI_API_KEY'),
+    google_api_key=os.getenv("GEMINI_API_KEY"),
     temperature=0
 )
 
-# Database config
+# DB config
 DB_CONFIG = {
-    'host': 'localhost',
-    'database': 'ecommerce_db',
-    'user': 'postgres',
-    'password': os.getenv('DB_PASSWORD')
+    "host": os.getenv("DB_HOST", "localhost"),
+    "database": os.getenv("DB_NAME", "ecommerce_db"),
+    "user": os.getenv("DB_USER", "postgres"),
+    "password": os.getenv("DB_PASSWORD")
 }
 
-# Store last query results globally
+# Global state
 last_results = None
 last_sql = None
+conversation_history = []
 
-# Tool 1: Get Schema
+# ---------- TOOLS ----------
+
+
 @tool
 def get_schema() -> str:
-    """Get database schema with table and column information"""
+    """Return database schema: tables, columns and data types."""
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
-    
     cur.execute("""
-        SELECT table_name, column_name, data_type 
-        FROM information_schema.columns 
-        WHERE table_schema = 'public'
+        SELECT table_name, column_name, data_type
+        FROM information_schema.columnsA
+        WHERE table_schema='public'
         ORDER BY table_name, ordinal_position
     """)
-    
-    schema = cur.fetchall()
+    rows = cur.fetchall()
     cur.close()
     conn.close()
-    
-    result = "Database Schema:\n"
-    current_table = None
-    for table, column, dtype in schema:
-        if table != current_table:
-            result += f"\n{table}:\n"
-            current_table = table
-        result += f"  - {column} ({dtype})\n"
-    
-    return result
 
-# Tool 2: Execute SQL (safe)
+    output = ["Database Schema:"]
+    current_table = None
+    for table, col, dtype in rows:
+        if current_table != table:
+            output.append(f"\n{table}:")
+            current_table = table
+        output.append(f"  - {col} ({dtype})")
+    return "\n".join(output)
+
+
 @tool
 def execute_sql(sql: str) -> str:
-    """Execute SELECT queries only. Returns results as text."""
+    """Execute a safe SELECT query and return results as formatted text."""
     global last_results, last_sql
-    
-    if not sql.strip().upper().startswith('SELECT'):
-        return "Error: Only SELECT queries allowed"
-    
+
+    sql_clean = sql.strip().upper()
+    if not sql_clean.startswith("SELECT"):
+        return "Error: Only SELECT queries allowed."
+
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
         cur.execute(sql)
-        results = cur.fetchall()
-        
-        # Get column names
-        colnames = [desc[0] for desc in cur.description]
-        
+        rows = cur.fetchall()
+        cols = [d[0] for d in cur.description]
         cur.close()
         conn.close()
-        
-        if not results:
+
+        if not rows:
             last_results = None
             last_sql = None
-            return "No results found"
-        
-        # Store for export/viz
-        last_results = pd.DataFrame(results, columns=colnames)
+            return "No results."
+
+        last_results = pd.DataFrame(rows, columns=cols)
         last_sql = sql
-        
-        return f"Query returned {len(results)} rows:\n{last_results.to_string()}"
+
+        return f"Rows: {len(rows)}\n\n{last_results.to_string()}"
+
     except Exception as e:
         return f"SQL Error: {str(e)}"
+
 
 # Bind tools
 llm_with_tools = llm.bind_tools([get_schema, execute_sql])
 
-# Global conversation history
-conversation_history = []
 
-def run_agent(question):
-    global conversation_history
-    
-    # Add user question to history
+# ---------- AGENT LOOP ----------
+def run_agent(question: str) -> str:
     conversation_history.append({"role": "user", "content": question})
-    
-    # Use FULL conversation history
     messages = conversation_history.copy()
-    
-    for iteration in range(5):
+
+    for _ in range(5):
         response = llm_with_tools.invoke(messages)
-        
+
         if response.tool_calls:
             tool_call = response.tool_calls[0]
-            tool_name = tool_call['name']
-            tool_args = tool_call['args']
-            
-            print(f"[Step {iteration+1}] Using tool: {tool_name}")
-            
-            if tool_name == 'get_schema':
-                result = get_schema.invoke(tool_args)
-            elif tool_name == 'execute_sql':
-                result = execute_sql.invoke(tool_args)
-                print(f"SQL: {tool_args.get('sql', '')}")
-            
-            messages.append({"role": "assistant", "content": response.content, "tool_calls": response.tool_calls})
-            messages.append({"role": "tool", "content": result, "tool_call_id": tool_call['id']})
-        else:
-            # Extract clean text from response
-            if isinstance(response.content, list):
-                clean_text = response.content[0].get('text', str(response.content[0]))
+            name = tool_call["name"]
+            args = tool_call.get("args", {})
+
+            if name == "get_schema":
+                result = get_schema.invoke(args)
+            elif name == "execute_sql":
+                result = execute_sql.invoke(args)
             else:
-                clean_text = response.content
-            
-            # Save CLEAN TEXT to history (this fixes /history display)
-            conversation_history.append({"role": "assistant", "content": clean_text})
-            
-            return clean_text
-    
-    return "Max iterations reached"
+                result = f"Unknown tool: {name}"
 
-# Export function
-def export_results(format='csv'):
+            messages.append({
+                "role": "assistant",
+                "content": response.content,
+                "tool_calls": response.tool_calls
+            })
+            messages.append({
+                "role": "tool",
+                "content": result,
+                "tool_call_id": tool_call.get("id")
+            })
+            continue
+
+        txt = response.content if isinstance(response.content, str) else response.content[0].get("text")
+        conversation_history.append({"role": "assistant", "content": txt})
+        return txt
+
+    return "Max iterations reached."
+
+
+# ---------- EXPORT ----------
+def export_results(fmt="csv"):
     if last_results is None:
-        print("❌ No results to export. Run a query first.")
         return
-    
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    if format == 'csv':
-        filename = f"query_results_{timestamp}.csv"
-        last_results.to_csv(filename, index=False)
-        print(f"✅ Exported to {filename}")
-    
-    elif format == 'excel':
-        filename = f"query_results_{timestamp}.xlsx"
-        last_results.to_excel(filename, index=False)
-        print(f"✅ Exported to {filename}")
-    
-    elif format == 'json':
-        filename = f"query_results_{timestamp}.json"
-        last_results.to_json(filename, orient='records', indent=2)
-        print(f"✅ Exported to {filename}")
 
-# Visualization function (FIXED)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    if fmt == "csv":
+        fn = f"results_{ts}.csv"
+        last_results.to_csv(fn, index=False)
+    elif fmt == "excel":
+        fn = f"results_{ts}.xlsx"
+        last_results.to_excel(fn, index=False)
+    elif fmt == "json":
+        fn = f"results_{ts}.json"
+        last_results.to_json(fn, orient="records", indent=2)
+    else:
+        return
+
+    print(fn)
+
+
+# ---------- VISUALIZE ----------
 def visualize_results():
     if last_results is None:
-        print("❌ No results to visualize. Run a query first.")
         return
-    
-    import matplotlib.pyplot as plt
-    
-    # Auto-detect chart type
-    if len(last_results.columns) == 2:
-        df = last_results.copy()
-        
-        # Clean numeric column (remove $ and convert)
-        col1, col2 = df.columns[0], df.columns[1]
-        
-        # Try to convert second column to numeric
-        try:
-            # Remove $ and commas, then convert
-            if df[col2].dtype == 'object':  # String column
-                df[col2] = df[col2].astype(str).str.replace('$', '').str.replace(',', '').astype(float)
-        except:
-            pass
-        
-        # Create bar chart
-        plt.figure(figsize=(10, 6))
-        df.plot(kind='bar', x=col1, y=col2, legend=False)
-        plt.title('Query Results')
-        plt.xlabel(col1)
-        plt.ylabel(col2)
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"chart_{timestamp}.png"
-        plt.savefig(filename)
-        print(f"✅ Chart saved as {filename}")
-        plt.show()
-    else:
-        print("❌ Visualization needs exactly 2 columns. Try: 'Show me X by Y'")
 
-# Show history
+    if len(last_results.columns) != 2:
+        return
+
+    import matplotlib.pyplot as plt
+
+    df = last_results.copy()
+    x, y = df.columns[0], df.columns[1]
+
+    try:
+        df[y] = df[y].astype(str).str.replace("$", "").str.replace(",", "").astype(float)
+    except:
+        pass
+
+    df = df.dropna(subset=[y])
+    if df.empty:
+        return
+
+    df.plot(kind="bar", x=x, y=y, legend=False)
+    plt.tight_layout()
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fn = f"chart_{ts}.png"
+    plt.savefig(fn)
+    plt.close()
+
+    print(fn)
+
+
+# ---------- HISTORY ----------
 def show_history():
     if not conversation_history:
-        print("No conversation history yet.")
         return
-    
-    print("\n=== CONVERSATION HISTORY ===")
-    for i, msg in enumerate(conversation_history):
-        role = msg['role'].upper()
-        content = msg['content']
-        if isinstance(content, str):
-            content = content[:100] + "..." if len(content) > 100 else content
-        print(f"[{i+1}] {role}: {content}")
-    print("============================\n")
+    for i, m in enumerate(conversation_history, 1):
+        content = str(m['content'])[:180]
+        print(f"[{i}] {m['role']}: {content}")
 
-# Clear history
+
 def clear_history():
     global conversation_history
     conversation_history = []
-    print("✅ Conversation history cleared")
 
-# Interactive CLI
+
+# ---------- CLI ----------
 def main():
-    print("=" * 60)
-    print("TEXT-TO-SQL AGENT (Interactive Mode)")
-    print("=" * 60)
-    print("Commands:")
-    print("  /export csv|excel|json  - Export last results")
-    print("  /viz                    - Create chart from last results")
-    print("  /history                - Show conversation history")
-    print("  /clear                  - Clear conversation history")
-    print("  /exit                   - Exit")
-    print("=" * 60)
-    print()
-    
+    print("Ready")
     while True:
         try:
-            question = input("You: ").strip()
-            
-            if not question:
+            q = input().strip()
+            if not q:
                 continue
-            
-            # Handle commands
-            if question == '/exit':
-                print("Goodbye! 👋")
+
+            if q == "/exit":
                 break
-            
-            elif question.startswith('/export'):
-                parts = question.split()
-                format = parts[1] if len(parts) > 1 else 'csv'
-                export_results(format)
-            
-            elif question == '/viz':
+            elif q.startswith("/export"):
+                parts = q.split()
+                fmt = parts[1] if len(parts) > 1 else "csv"
+                export_results(fmt)
+                continue
+            elif q == "/viz":
                 visualize_results()
-            
-            elif question == '/history':
+                continue
+            elif q == "/history":
                 show_history()
-            
-            elif question == '/clear':
+                continue
+            elif q == "/clear":
                 clear_history()
-            
-            else:
-                # Regular query
-                print("\nAI:", end=" ")
-                result = run_agent(question)
-                print(result)
-                print()
-        
+                continue
+
+            ans = run_agent(q)
+            print(ans)
+
         except KeyboardInterrupt:
-            print("\n\nGoodbye! 👋")
             break
-        except Exception as e:
-            print(f"❌ Error: {e}")
+        except Exception:
+            break
+
 
 if __name__ == "__main__":
     main()
